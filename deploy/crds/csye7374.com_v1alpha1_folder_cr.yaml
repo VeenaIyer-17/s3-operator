@@ -1,0 +1,7 @@
+apiVersion: csye7374.com/v1alpha1
+kind: Folder
+metadata:
+  name: example-folder
+spec:
+  # Add fields here
+  size: 3
