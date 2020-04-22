@@ -1,7 +1,9 @@
 apiVersion: csye7374.com/v1alpha1
 kind: Folder
 metadata:
-  name: example-folder
+  name: test-resource
+  namespace: default
 spec:
-  # Add fields here
-  size: 3
+  username: test-user
+  userSecret:
+    name: test-secret
