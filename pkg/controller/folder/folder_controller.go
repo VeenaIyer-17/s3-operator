@@ -2,6 +2,7 @@ package folder
 
 import (
 	"context"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"time"
 
 	"fmt"
@@ -117,7 +118,7 @@ func (r *ReconcileFolder) Reconcile(request reconcile.Request) (reconcile.Result
 		return reconcile.Result{}, err
 	}
 
-	//My changes
+	// changes- Veena
 
 	secretCheck := &corev1.Secret{}
 
@@ -165,6 +166,13 @@ func (r *ReconcileFolder) Reconcile(request reconcile.Request) (reconcile.Result
 		return reconcile.Result{}, err
 	}
 	// ravi's changes ends here
+
+	// changes by Veena
+	awsUser, err := createIamUser(cfg, instance.Spec.Username)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
 	//Finalizer - checking for instance deletion
 	if instance.ObjectMeta.DeletionTimestamp.IsZero() {
 		// Registering finalizer to object being deleted.
@@ -197,67 +205,67 @@ func (r *ReconcileFolder) Reconcile(request reconcile.Request) (reconcile.Result
 		return reconcile.Result{}, nil
 	}
 
-	// accessList := ListAwsAccessKey(cfg, aws.StringValue(createdAwsUser.UserName)).AccessKeyMetadata
+	accessList := ListAwsAccessKey(cfg, aws.StringValue(awsUser.UserName)).AccessKeyMetadata
 
-	// var accessKey *iam.Accesskey
-	// if len(accessList) < 1 || accessList == nil {
-	// 	accessKey, err = CreateAccessKeyForUser(cfg, aws.StringValue(createdAwsUser.UserName))
-	// 	if err != nil {
-	// 		return reconcile.Result{}, err
-	// 	}
-	// } else {
-	// 	awsAccessKey := accessList[0].AccessKeyId
-	// 	secretExists := &corev1.Secret{}
-	// 	err = r.client.Get(context.TODO(), types.NamespacedName{Name: instance.Spec.UserSecret.Name, Namespace: instance.Namespace}, secretExists)
-	// 	if secretExists.Name == instance.Spec.UserSecret.Name {
-	// 		if aws.StringValue(awsAccessKey) != string(secretExists.Data["aws_access_key_id"]) {
-	// 			if DeleteAccessKey(cfg, aws.StringValue(awsAccessKey), aws.StringValue(createdAwsUser.UserName)) {
-	// 				accessKey, err = CreateAccessKeyForUser(cfg, aws.StringValue(createdAwsUser.UserName))
-	// 				if err != nil {
-	// 					return reconcile.Result{}, err
-	// 				}
-	// 				err = r.client.Delete(context.TODO(), secretExists)
-	// 				if err != nil {
-	// 					return reconcile.Result{}, err
-	// 				}
-	// 			} else {
-	// 				return reconcile.Result{}, err
-	// 			}
-	// 		}
-	// 	} else {
-	// 		if DeleteAccessKey(cfg, aws.StringValue(awsAccessKey), aws.StringValue(createdAwsUser.UserName)) {
-	// 			accessKey, err = CreateAccessKeyForUser(cfg, aws.StringValue(createdAwsUser.UserName))
-	// 			if err != nil {
-	// 				return reconcile.Result{}, err
-	// 			}
-	// 			if secretExists.Name != "" {
-	// 				err = r.client.Delete(context.TODO(), secretExists)
-	// 				if err != nil {
-	// 					return reconcile.Result{}, err
-	// 				}
-	// 			}
-	// 		} else {
-	// 			return reconcile.Result{}, err
-	// 		}
-	// 	}
-	// }
+	var accessKey *iam.AccessKey
+	if len(accessList) < 1 || accessList == nil {
+		accessKey, err = CreateUserAccessKey(cfg, aws.StringValue(awsUser.UserName))
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+	} else {
+		awsAccessKey := accessList[0].AccessKeyId
+		secretExists := &corev1.Secret{}
+		err = r.client.Get(context.TODO(), types.NamespacedName{Name: instance.Spec.UserSecret.Name, Namespace: instance.Namespace}, secretExists)
+		if secretExists.Name == instance.Spec.UserSecret.Name {
+			if aws.StringValue(awsAccessKey) != string(secretExists.Data["aws_access_key_id"]) {
+				if DeleteAccessKey(cfg, aws.StringValue(awsAccessKey), aws.StringValue(awsUser.UserName)) {
+					accessKey, err = CreateUserAccessKey(cfg, aws.StringValue(awsUser.UserName))
+					if err != nil {
+						return reconcile.Result{}, err
+					}
+					err = r.client.Delete(context.TODO(), secretExists)
+					if err != nil {
+						return reconcile.Result{}, err
+					}
+				} else {
+					return reconcile.Result{}, err
+				}
+			}
+		} else {
+			if DeleteAccessKey(cfg, aws.StringValue(awsAccessKey), aws.StringValue(awsUser.UserName)) {
+				accessKey, err = CreateUserAccessKey(cfg, aws.StringValue(awsUser.UserName))
+				if err != nil {
+					return reconcile.Result{}, err
+				}
+				if secretExists.Name != "" {
+					err = r.client.Delete(context.TODO(), secretExists)
+					if err != nil {
+						return reconcile.Result{}, err
+					}
+				}
+			} else {
+				return reconcile.Result{}, err
+			}
+		}
+	}
 
-	// secretExists := &corev1.Secret{}
-	// err = r.client.Get(context.TODO(), types.NamespacedName{Name: instance.Spec.UserSecret.Name, Namespace: instance.Namespace}, secretExists)
-	// if err != nil && errors.IsNotFound(err) {
-	// 	newSecret := NewSecret(instance.Namespace, instance.Spec.UserSecret.Name, aws.StringValue(accessKey.AccessKeyId), aws.StringValue(accessKey.SecretAccessKey))
-	// 	if err := controllerutil.SetControllerReference(instance, newSecret, r.scheme); err != nil {
-	// 		return reconcile.Result{}, err
-	// 	}
+	secretExists := &corev1.Secret{}
+	err = r.client.Get(context.TODO(), types.NamespacedName{Name: instance.Spec.UserSecret.Name, Namespace: instance.Namespace}, secretExists)
+	if err != nil && errors.IsNotFound(err) {
+		newSecret := NewSecret(instance.Namespace, instance.Spec.UserSecret.Name, aws.StringValue(accessKey.AccessKeyId), aws.StringValue(accessKey.SecretAccessKey))
+		if err := controllerutil.SetControllerReference(instance, newSecret, r.scheme); err != nil {
+			return reconcile.Result{}, err
+		}
 
-	// 	reqLogger.Info("Secret created", "secret.Namespace", newSecret.Namespace, "Secret.Name", newSecret.Name)
-	// 	err = r.client.Create(context.TODO(), newSecret)
-	// 	if err != nil {
-	// 		return reconcile.Result{}, err
-	// 	}
-	// } else if err != nil {
-	// 	return reconcile.Result{}, err
-	// }
+		reqLogger.Info("Secret created", "secret.Namespace", newSecret.Namespace, "Secret.Name", newSecret.Name)
+		err = r.client.Create(context.TODO(), newSecret)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+	} else if err != nil {
+		return reconcile.Result{}, err
+	}
 
 	return reconcile.Result{RequeueAfter: time.Second * 5}, nil
 
@@ -291,6 +299,34 @@ func (r *ReconcileFolder) Reconcile(request reconcile.Request) (reconcile.Result
 	// return reconcile.Result{}, nil
 }
 
+//created since need it to delete
+func createIamUser(cfg *aws.Config, userName string) (*iam.User, error) {
+	service := iam.New(session.New(), cfg)
+
+	userOutput, err := service.GetUser(&iam.GetUserInput{
+		UserName: aws.String(userName),
+	})
+
+	if err == nil {
+		return userOutput.User, nil
+	}
+
+	if awserror, ok := err.(awserr.Error); ok && awserror.Code() == iam.ErrCodeNoSuchEntityException {
+		userOutputPod, err := service.CreateUser(&iam.CreateUserInput{
+			UserName: aws.String(userName),
+		})
+
+		if err != nil {
+			fmt.Println("Error in user creation", err)
+			return nil, err
+		}
+		return userOutputPod.User, nil
+	}else {
+		log.Error(err, "Error in Get User in IAM user creation")
+		return nil, err
+	}
+}
+
 func NewSecret(namespace string, name string, awsAccessKey string, awsSecretKey string) *corev1.Secret {
 	return &corev1.Secret{
 		TypeMeta: metav1.TypeMeta{APIVersion: corev1.SchemeGroupVersion.String()},
@@ -304,6 +340,20 @@ func NewSecret(namespace string, name string, awsAccessKey string, awsSecretKey 
 			"aws_secret_access_key": []byte(awsSecretKey),
 		},
 	}
+}
+
+func CreateUserAccessKey(cfg *aws.Config, username string) (*iam.AccessKey, error) {
+	svc := iam.New(session.New(), cfg)
+
+	result, err := svc.CreateAccessKey(&iam.CreateAccessKeyInput{
+		UserName: aws.String(username),
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return result.AccessKey, nil
 }
 
 func RemoveString(slice []string, s string) (result []string) {
@@ -543,6 +593,7 @@ func createS3Folder(cfg *aws.Config, bucket string, instance *csye7374v1alpha1.F
 	}
 	return nil
 }
+//Veena changes ends
 
 // // newPodForCR returns a busybox pod with the same name/namespace as the cr
 // func newPodForCR(cr *csye7374v1alpha1.Folder) *corev1.Pod {
