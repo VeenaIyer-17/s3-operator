@@ -3,6 +3,13 @@ kind: CustomResourceDefinition
 metadata:
   name: folders.csye7374.com
 spec:
+  additionalPrinterColumns:
+    - JSONPath: .status.setupComplete
+      name: SetupComplete
+      type: boolean
+    - JSONPath: .metadata.creationTimestamp
+      name: Age
+      type: date
   group: csye7374.com
   names:
     kind: Folder
@@ -30,9 +37,33 @@ spec:
           type: object
         spec:
           description: FolderSpec defines the desired state of Folder
+          properties:
+            userSecret:
+              properties:
+                name:
+                  type: string
+              required:
+              - name
+              type: object
+            username:
+              description: 'INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
+                Important: Run "operator-sdk generate k8s" to regenerate code after
+                modifying this file Add custom validation using kubebuilder tags:
+                https://book-v1.book.kubebuilder.io/beyond_basics/generating_crd.html'
+              type: string
+          required:
+          - userSecret
+          - username
           type: object
         status:
           description: FolderStatus defines the observed state of Folder
+          properties:
+            setupComplete:
+              description: 'INSERT ADDITIONAL STATUS FIELD - define observed state
+                of cluster Important: Run "operator-sdk generate k8s" to regenerate
+                code after modifying this file Add custom validation using kubebuilder
+                tags: https://book-v1.book.kubebuilder.io/beyond_basics/generating_crd.html'
+              type: boolean
           type: object
       type: object
   version: v1alpha1

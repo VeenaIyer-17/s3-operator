@@ -16,10 +16,13 @@ spec:
       containers:
         - name: s3-operator
           # Replace this with the built image name
-          image: REPLACE_IMAGE
+          image: kiranhun/operator:latest
           command:
           - s3-operator
           imagePullPolicy: Always
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /usr/local/etc/operator
           env:
             - name: WATCH_NAMESPACE
               valueFrom:
@@ -31,3 +34,7 @@ spec:
                   fieldPath: metadata.name
             - name: OPERATOR_NAME
               value: "s3-operator"
+      volumes:
+        - name: secret-volume
+          secret:
+            secretName: s3-operator-secret

@@ -12,6 +12,8 @@ type FolderSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "operator-sdk generate k8s" to regenerate code after modifying this file
 	// Add custom validation using kubebuilder tags: https://book-v1.book.kubebuilder.io/beyond_basics/generating_crd.html
+	Username   string     `json:"username"`
+	UserSecret UserSecret `json:"userSecret"`
 }
 
 // FolderStatus defines the observed state of Folder
@@ -19,6 +21,7 @@ type FolderStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "operator-sdk generate k8s" to regenerate code after modifying this file
 	// Add custom validation using kubebuilder tags: https://book-v1.book.kubebuilder.io/beyond_basics/generating_crd.html
+	SetupComplete bool `json:"setupComplete,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -45,4 +48,8 @@ type FolderList struct {
 
 func init() {
 	SchemeBuilder.Register(&Folder{}, &FolderList{})
+}
+
+type UserSecret struct {
+	Name string `json:"name"`
 }
