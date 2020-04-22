@@ -1,9 +1,9 @@
 apiVersion: csye7374.com/v1alpha1
 kind: Folder
 metadata:
-  name: test-resource
+  name: test-resource1
   namespace: default
 spec:
-  username: test-user
+  username: raviKiran
   userSecret:
     name: test-secret
