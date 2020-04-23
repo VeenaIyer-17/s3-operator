@@ -4,6 +4,6 @@ metadata:
   name: test-resource1
   namespace: default
 spec:
-  username: raviKiran
+  username: akashKatakam
   userSecret:
     name: test-secret
