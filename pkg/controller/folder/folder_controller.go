@@ -2,8 +2,9 @@ package folder
 
 import (
 	"context"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"time"
+
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"fmt"
 	"io/ioutil"
@@ -161,14 +162,29 @@ func (r *ReconcileFolder) Reconcile(request reconcile.Request) (reconcile.Result
 	}
 	cfg := aws.NewConfig().WithRegion(region).WithCredentials(creds)
 
+	//things to be recreated when deleted
 	err = createS3Folder(cfg, bucket, instance)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
-	// ravi's changes ends here
-
-	// changes by Veena
 	awsUser, err := createIamUser(cfg, instance.Spec.Username)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	// get current user identity
+	currentAwsUser, err := getUserInfo(cfg)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+	//create policy for bucket
+	policy, err := CreateIamPolicy(cfg, bucket, instance.Spec.Username, aws.StringValue(currentAwsUser.Account))
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	//Attach created policy to User
+	err = AttachPolicyToUsers(cfg, policy.Arn, instance.Spec.Username)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -187,7 +203,7 @@ func (r *ReconcileFolder) Reconcile(request reconcile.Request) (reconcile.Result
 	} else {
 		if ContainsString(instance.ObjectMeta.Finalizers, FolderFinalizerName) {
 			//deleting external dependencies
-			if err := r.deleteResources(instance, cfg, bucket); err != nil {
+			if err := r.deleteAwsResources(instance, cfg, bucket); err != nil {
 				log.Error(err, "Unable to delete resources",
 					"Name", request.Name, "Namespace", request.Namespace)
 				return reconcile.Result{}, err
@@ -209,7 +225,7 @@ func (r *ReconcileFolder) Reconcile(request reconcile.Request) (reconcile.Result
 
 	var accessKey *iam.AccessKey
 	if len(accessList) < 1 || accessList == nil {
-		accessKey, err = CreateUserAccessKey(cfg, aws.StringValue(awsUser.UserName))
+		accessKey, err = createUserAcessKey(cfg, aws.StringValue(awsUser.UserName))
 		if err != nil {
 			return reconcile.Result{}, err
 		}
@@ -220,7 +236,7 @@ func (r *ReconcileFolder) Reconcile(request reconcile.Request) (reconcile.Result
 		if secretExists.Name == instance.Spec.UserSecret.Name {
 			if aws.StringValue(awsAccessKey) != string(secretExists.Data["aws_access_key_id"]) {
 				if DeleteAccessKey(cfg, aws.StringValue(awsAccessKey), aws.StringValue(awsUser.UserName)) {
-					accessKey, err = CreateUserAccessKey(cfg, aws.StringValue(awsUser.UserName))
+					accessKey, err = createUserAcessKey(cfg, aws.StringValue(awsUser.UserName))
 					if err != nil {
 						return reconcile.Result{}, err
 					}
@@ -234,7 +250,7 @@ func (r *ReconcileFolder) Reconcile(request reconcile.Request) (reconcile.Result
 			}
 		} else {
 			if DeleteAccessKey(cfg, aws.StringValue(awsAccessKey), aws.StringValue(awsUser.UserName)) {
-				accessKey, err = CreateUserAccessKey(cfg, aws.StringValue(awsUser.UserName))
+				accessKey, err = createUserAcessKey(cfg, aws.StringValue(awsUser.UserName))
 				if err != nil {
 					return reconcile.Result{}, err
 				}
@@ -266,40 +282,34 @@ func (r *ReconcileFolder) Reconcile(request reconcile.Request) (reconcile.Result
 	} else if err != nil {
 		return reconcile.Result{}, err
 	}
+	reqLogger.Info("Reconciling done", "secret.Namespace", secretExists.Namespace, "Secret.Name", secretExists.Name)
+	//update status to complete
+	instance.Status.SetupComplete = true
+	err = r.client.Status().Update(context.TODO(), instance)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
 
 	return reconcile.Result{RequeueAfter: time.Second * 5}, nil
 
-	// My changes ends
-	// Define a new Pod object
-	// pod := newPodForCR(instance)
-
-	// // Set Folder instance as the owner and controller
-	// if err := controllerutil.SetControllerReference(instance, pod, r.scheme); err != nil {
-	// 	return reconcile.Result{}, err
-	// }
-
-	// // Check if this Pod already exists
-	// found := &corev1.Pod{}
-	// err = r.client.Get(context.TODO(), types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, found)
-	// if err != nil && errors.IsNotFound(err) {
-	// 	reqLogger.Info("Creating a new Pod", "Pod.Namespace", pod.Namespace, "Pod.Name", pod.Name)
-	// 	err = r.client.Create(context.TODO(), pod)
-	// 	if err != nil {
-	// 		return reconcile.Result{}, err
-	// 	}
-
-	// 	// Pod created successfully - don't requeue
-	// 	return reconcile.Result{}, nil
-	// } else if err != nil {
-	// 	return reconcile.Result{}, err
-	// }
-
-	// // Pod already exists - don't requeue
-	// reqLogger.Info("Skip reconcile: Pod already exists", "Pod.Namespace", found.Namespace, "Pod.Name", found.Name)
-	// return reconcile.Result{}, nil
 }
 
-//created since need it to delete
+func NewSecret(namespace string, name string, awsAccessKey string, awsSecretKey string) *corev1.Secret {
+	return &corev1.Secret{
+		TypeMeta: metav1.TypeMeta{APIVersion: corev1.SchemeGroupVersion.String()},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      name,
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			"aws_access_key_id":     []byte(awsAccessKey),
+			"aws_secret_access_key": []byte(awsSecretKey),
+		},
+	}
+}
+
+//AWS Functions
 func createIamUser(cfg *aws.Config, userName string) (*iam.User, error) {
 	service := iam.New(session.New(), cfg)
 
@@ -321,28 +331,13 @@ func createIamUser(cfg *aws.Config, userName string) (*iam.User, error) {
 			return nil, err
 		}
 		return userOutputPod.User, nil
-	}else {
+	} else {
 		log.Error(err, "Error in Get User in IAM user creation")
 		return nil, err
 	}
 }
 
-func NewSecret(namespace string, name string, awsAccessKey string, awsSecretKey string) *corev1.Secret {
-	return &corev1.Secret{
-		TypeMeta: metav1.TypeMeta{APIVersion: corev1.SchemeGroupVersion.String()},
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: namespace,
-			Name:      name,
-		},
-		Type: corev1.SecretTypeOpaque,
-		Data: map[string][]byte{
-			"aws_access_key_id":     []byte(awsAccessKey),
-			"aws_secret_access_key": []byte(awsSecretKey),
-		},
-	}
-}
-
-func CreateUserAccessKey(cfg *aws.Config, username string) (*iam.AccessKey, error) {
+func createUserAcessKey(cfg *aws.Config, username string) (*iam.AccessKey, error) {
 	svc := iam.New(session.New(), cfg)
 
 	result, err := svc.CreateAccessKey(&iam.CreateAccessKeyInput{
@@ -356,26 +351,60 @@ func CreateUserAccessKey(cfg *aws.Config, username string) (*iam.AccessKey, erro
 	return result.AccessKey, nil
 }
 
-func RemoveString(slice []string, s string) (result []string) {
-	for _, item := range slice {
-		if item == s {
-			continue
+func CreateIamPolicy(cfg *aws.Config, bucketName string, folderName string, accountId string) (*iam.Policy, error) {
+	svc := iam.New(session.New(), cfg)
+
+	policyString := `{
+   "Version":"2012-10-17",
+   "Statement":[
+      {
+         "Effect":"Allow",
+         "Action":[
+            "s3:PutObject",
+            "s3:GetObject",
+            "s3:GetObjectVersion",
+            "s3:DeleteObject",
+            "s3:DeleteObjectVersion"
+         ],
+         "Resource":"arn:aws:s3:::` + bucketName + `/` + folderName + `/*"
+      }
+	   ]
+	}`
+
+	policy, err := svc.CreatePolicy(&iam.CreatePolicyInput{
+		PolicyDocument: aws.String(policyString),
+		PolicyName:     aws.String(folderName + "bucketPolicy"),
+	})
+
+	if awserr, ok := err.(awserr.Error); ok && awserr.Code() == iam.ErrCodeEntityAlreadyExistsException {
+		existingPolicy, err := svc.GetPolicy(&iam.GetPolicyInput{
+			PolicyArn: aws.String("arn:aws:iam::" + accountId + ":policy/" + folderName + "bucketPolicy"),
+		})
+
+		if err != nil {
+			fmt.Println("Create Policy", err)
+			return nil, err
 		}
-		result = append(result, item)
+
+		return existingPolicy.Policy, nil
 	}
-	return
+
+	return policy.Policy, nil
 }
 
-func ContainsString(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
+func AttachPolicyToUsers(cfg *aws.Config, policyArn *string, user string) error {
+	svc := iam.New(session.New(), cfg)
+	_, err := svc.AttachUserPolicy(&iam.AttachUserPolicyInput{
+		UserName:  aws.String(user),
+		PolicyArn: policyArn,
+	})
+	if err != nil {
+		return err
 	}
-	return false
+	return nil
 }
 
-func GetUserIdentity(cfg *aws.Config) (*sts.GetCallerIdentityOutput, error) {
+func getUserInfo(cfg *aws.Config) (*sts.GetCallerIdentityOutput, error) {
 	service := sts.New(session.New(), cfg)
 	input := &sts.GetCallerIdentityInput{}
 
@@ -395,13 +424,13 @@ func GetUserIdentity(cfg *aws.Config) (*sts.GetCallerIdentityOutput, error) {
 	return result, nil
 }
 
-func (r *ReconcileFolder) deleteResources(instance *csye7374v1alpha1.Folder, cfg *aws.Config, bucketNm string) error {
+func (r *ReconcileFolder) deleteAwsResources(instance *csye7374v1alpha1.Folder, cfg *aws.Config, bucketNm string) error {
 	err := deleteS3Folder(bucketNm, instance.Spec.Username, cfg)
 	if err != nil {
 		return err
 	}
 
-	currentUser, err := GetUserIdentity(cfg)
+	currentUser, err := getUserInfo(cfg)
 	if err != nil {
 		return err
 	}
@@ -428,6 +457,15 @@ func (r *ReconcileFolder) deleteResources(instance *csye7374v1alpha1.Folder, cfg
 		}
 	}
 
+	accessList := ListAwsAccessKey(cfg, instance.Spec.Username).AccessKeyMetadata
+	if len(accessList) > 0 || accessList != nil {
+		accessKeyId := accessList[0].AccessKeyId
+		if !DeleteAccessKey(cfg, aws.StringValue(accessKeyId), instance.Spec.Username) {
+			log.Error(err, "Could not delete Accesskey")
+			return err
+		}
+	}
+
 	err = deleteUser(instance.Spec.Username, cfg)
 	if err != nil {
 		if awserror, ok := err.(awserr.Error); ok {
@@ -437,14 +475,6 @@ func (r *ReconcileFolder) deleteResources(instance *csye7374v1alpha1.Folder, cfg
 		}
 	}
 
-	accessList := ListAwsAccessKey(cfg, instance.Spec.Username).AccessKeyMetadata
-	if len(accessList) > 0 || accessList != nil {
-		accessKeyId := accessList[0].AccessKeyId
-		if !DeleteAccessKey(cfg, aws.StringValue(accessKeyId), instance.Spec.Username) {
-			log.Error(err, "Could not delete Accesskey")
-			return err
-		}
-	}
 	return nil
 }
 
@@ -593,27 +623,23 @@ func createS3Folder(cfg *aws.Config, bucket string, instance *csye7374v1alpha1.F
 	}
 	return nil
 }
-//Veena changes ends
 
-// // newPodForCR returns a busybox pod with the same name/namespace as the cr
-// func newPodForCR(cr *csye7374v1alpha1.Folder) *corev1.Pod {
-// 	labels := map[string]string{
-// 		"app": cr.Name,
-// 	}
-// 	return &corev1.Pod{
-// 		ObjectMeta: metav1.ObjectMeta{
-// 			Name:      cr.Name + "-pod",
-// 			Namespace: cr.Namespace,
-// 			Labels:    labels,
-// 		},
-// 		Spec: corev1.PodSpec{
-// 			Containers: []corev1.Container{
-// 				{
-// 					Name:    "busybox",
-// 					Image:   "busybox",
-// 					Command: []string{"sleep", "3600"},
-// 				},
-// 			},
-// 		},
-// 	}
-// }
+//Helper functions
+func RemoveString(slice []string, s string) (result []string) {
+	for _, item := range slice {
+		if item == s {
+			continue
+		}
+		result = append(result, item)
+	}
+	return
+}
+
+func ContainsString(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+	return false
+}
