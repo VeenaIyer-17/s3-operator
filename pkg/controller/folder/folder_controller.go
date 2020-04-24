@@ -225,7 +225,7 @@ func (r *ReconcileFolder) Reconcile(request reconcile.Request) (reconcile.Result
 
 	var accessKey *iam.AccessKey
 	if len(accessList) < 1 || accessList == nil {
-		accessKey, err = createUserAccessKey(cfg, aws.StringValue(awsUser.UserName))
+		accessKey, err = createUserAcessKey(cfg, aws.StringValue(awsUser.UserName))
 		if err != nil {
 			return reconcile.Result{}, err
 		}
@@ -236,7 +236,7 @@ func (r *ReconcileFolder) Reconcile(request reconcile.Request) (reconcile.Result
 		if secretExists.Name == instance.Spec.UserSecret.Name {
 			if aws.StringValue(awsAccessKey) != string(secretExists.Data["aws_access_key_id"]) {
 				if DeleteAccessKey(cfg, aws.StringValue(awsAccessKey), aws.StringValue(awsUser.UserName)) {
-					accessKey, err = createUserAccessKey(cfg, aws.StringValue(awsUser.UserName))
+					accessKey, err = createUserAcessKey(cfg, aws.StringValue(awsUser.UserName))
 					if err != nil {
 						return reconcile.Result{}, err
 					}
@@ -250,7 +250,7 @@ func (r *ReconcileFolder) Reconcile(request reconcile.Request) (reconcile.Result
 			}
 		} else {
 			if DeleteAccessKey(cfg, aws.StringValue(awsAccessKey), aws.StringValue(awsUser.UserName)) {
-				accessKey, err = createUserAccessKey(cfg, aws.StringValue(awsUser.UserName))
+				accessKey, err = createUserAcessKey(cfg, aws.StringValue(awsUser.UserName))
 				if err != nil {
 					return reconcile.Result{}, err
 				}
@@ -337,7 +337,7 @@ func createIamUser(cfg *aws.Config, userName string) (*iam.User, error) {
 	}
 }
 
-func createUserAccessKey(cfg *aws.Config, username string) (*iam.AccessKey, error) {
+func createUserAcessKey(cfg *aws.Config, username string) (*iam.AccessKey, error) {
 	svc := iam.New(session.New(), cfg)
 
 	result, err := svc.CreateAccessKey(&iam.CreateAccessKeyInput{
@@ -457,6 +457,15 @@ func (r *ReconcileFolder) deleteAwsResources(instance *csye7374v1alpha1.Folder, 
 		}
 	}
 
+	accessList := ListAwsAccessKey(cfg, instance.Spec.Username).AccessKeyMetadata
+	if len(accessList) > 0 || accessList != nil {
+		accessKeyId := accessList[0].AccessKeyId
+		if !DeleteAccessKey(cfg, aws.StringValue(accessKeyId), instance.Spec.Username) {
+			log.Error(err, "Could not delete Accesskey")
+			return err
+		}
+	}
+
 	err = deleteUser(instance.Spec.Username, cfg)
 	if err != nil {
 		if awserror, ok := err.(awserr.Error); ok {
@@ -466,14 +475,6 @@ func (r *ReconcileFolder) deleteAwsResources(instance *csye7374v1alpha1.Folder, 
 		}
 	}
 
-	accessList := ListAwsAccessKey(cfg, instance.Spec.Username).AccessKeyMetadata
-	if len(accessList) > 0 || accessList != nil {
-		accessKeyId := accessList[0].AccessKeyId
-		if !DeleteAccessKey(cfg, aws.StringValue(accessKeyId), instance.Spec.Username) {
-			log.Error(err, "Could not delete Accesskey")
-			return err
-		}
-	}
 	return nil
 }
 
