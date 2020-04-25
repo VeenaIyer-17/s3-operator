@@ -195,29 +195,27 @@ func (r *ReconcileFolder) Reconcile(request reconcile.Request) (reconcile.Result
 		if !ContainsString(instance.ObjectMeta.Finalizers, FolderFinalizerName) {
 			instance.ObjectMeta.Finalizers = append(instance.ObjectMeta.Finalizers, FolderFinalizerName)
 			if err := r.client.Update(context.Background(), instance); err != nil {
-				log.Error(err, "Unable to add finalizer to Folder "+
-					"Name", request.Name, "Namespace", request.Namespace)
+				log.Error(err, "Unable to add finalizer to Folder ", "Name", request.Name, "Namespace", request.Namespace)
 				return reconcile.Result{}, err
 			}
 		}
 	} else {
 		if ContainsString(instance.ObjectMeta.Finalizers, FolderFinalizerName) {
+			log.Info("In else", "FinalizerName", instance.ObjectMeta.Finalizers)
 			//deleting external dependencies
 			if err := r.deleteAwsResources(instance, cfg, bucket); err != nil {
-				log.Error(err, "Unable to delete resources",
-					"Name", request.Name, "Namespace", request.Namespace)
+				//Any error thrown in external resource deletion
+				log.Error(err, "Unable to delete resources", "Name", request.Name, "Namespace", request.Namespace)
 				return reconcile.Result{}, err
 			}
 
 			instance.ObjectMeta.Finalizers = RemoveString(instance.ObjectMeta.Finalizers, FolderFinalizerName)
 			if err := r.client.Update(context.Background(), instance); err != nil {
-				log.Error(err, "Unable to update object",
-					"Name", request.Name, "Namespace", request.Namespace)
+				log.Error(err, "Unable to update object", "Name", request.Name, "Namespace", request.Namespace)
 				return reconcile.Result{}, err
 			}
 		}
-		log.Info("Reconcile Successful", "Name", request.Name,
-			"Namespace", request.Namespace)
+		log.Info("Reconcile Successful", "Name", request.Name, "Namespace", request.Namespace)
 		return reconcile.Result{}, nil
 	}
 
