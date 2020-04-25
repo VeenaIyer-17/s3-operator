@@ -16,9 +16,9 @@ spec:
       containers:
         - name: s3-operator
           # Replace this with the built image name
-          image: kiranhun/operator:latest
+          image: akashkatakam/s3-operator:latest
           command:
-          - s3-operator
+            - s3-operator
           imagePullPolicy: Always
           volumeMounts:
             - name: secret-volume
@@ -34,6 +34,8 @@ spec:
                   fieldPath: metadata.name
             - name: OPERATOR_NAME
               value: "s3-operator"
+      imagePullSecrets:
+        - name: s3-operator-docker-secret
       volumes:
         - name: secret-volume
           secret:
