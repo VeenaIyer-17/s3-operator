@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: s3-operator
+  template:
+    metadata:
+      labels:
+        name: s3-operator
+    spec:
+      serviceAccountName: s3-operator
+      containers:
+        - name: s3-operator
+          # Replace this with the built image name
+          image: akashkatakam/s3-operator:latest
+          command:
+            - s3-operator
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /usr/local/etc/operator
+          env:
+            - name: WATCH_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OPERATOR_NAME
+              value: "s3-operator"
+      imagePullSecrets:
+        - name: s3-operator-docker-secret
+      volumes:
+        - name: secret-volume
+          secret:
+            secretName: s3-operator-secret

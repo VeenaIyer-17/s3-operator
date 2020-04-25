@@ -1,0 +1,9 @@
+apiVersion: csye7374.com/v1alpha1
+kind: Folder
+metadata:
+  name: testuser-folder
+  namespace: default
+spec:
+  username: testuser
+  userSecret:
+    name: testuser-secret
